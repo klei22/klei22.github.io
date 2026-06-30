@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transformer Visualization Lab</title>
+  <meta name="description" content="A GitHub Pages launch page for interactive transformer visualizations: prefill/decode K/V cache, one-head attention, and read/activate/write vector flows." />
+  <style>
+    :root {
+      --bg: #151829;
+      --bg-2: #1b1b2f;
+      --panel: rgba(255,255,255,0.06);
+      --panel-2: rgba(255,255,255,0.095);
+      --border: rgba(255,255,255,0.13);
+      --border-strong: rgba(255,255,255,0.22);
+      --text: #ffffff;
+      --muted: rgba(255,255,255,0.70);
+      --faint: rgba(255,255,255,0.46);
+      --current: #ff7b72;
+      --prior: #94a3b8;
+      --tensor: #ffd166;
+      --query: #c77dff;
+      --key: #60a5fa;
+      --value: #f4a261;
+      --attn: #52b788;
+      --sum: #4ea8de;
+      --quant: #58c4dd;
+      --quant-final: #7dd3fc;
+      --target: #ef4444;
+      --shadow: rgba(0,0,0,0.34);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(82,183,136,0.13), transparent 30%),
+        radial-gradient(circle at 82% 18%, rgba(199,125,255,0.12), transparent 34%),
+        radial-gradient(circle at 68% 92%, rgba(88,196,221,0.12), transparent 28%),
+        linear-gradient(180deg, #151829 0%, #111423 56%, #0d1020 100%);
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: auto;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      width: 760px;
+      height: 760px;
+      left: -280px;
+      top: -300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(125,211,252,0.12), rgba(125,211,252,0.035) 38%, transparent 68%);
+      filter: blur(4px);
+    }
+
+    body::after {
+      width: 840px;
+      height: 840px;
+      right: -310px;
+      bottom: -360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,209,102,0.12), rgba(199,125,255,0.055) 38%, transparent 70%);
+      filter: blur(6px);
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 26px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      flex: 0 0 auto;
+      border-radius: 15px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background:
+        linear-gradient(135deg, rgba(199,125,255,0.18), rgba(82,183,136,0.12)),
+        rgba(255,255,255,0.055);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.22), inset 0 0 0 1px rgba(255,255,255,0.045);
+      overflow: hidden;
+    }
+
+    .brand-mark::before,
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.34);
+      inset: 9px;
+      transform: rotate(-24deg) scaleX(1.24);
+    }
+
+    .brand-mark::after {
+      inset: 18px;
+      background: var(--quant-final);
+      border: 0;
+      box-shadow: 0 0 22px rgba(125,211,252,0.78);
+      transform: none;
+    }
+
+    .brand-text { min-width: 0; }
+    .brand-kicker {
+      color: rgba(255,255,255,0.50);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .brand-title {
+      margin-top: 2px;
+      font-size: 15px;
+      font-weight: 780;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .chip,
+    .mini-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.13);
+      background: rgba(255,255,255,0.055);
+      color: rgba(255,255,255,0.78);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+
+    .chip .dot,
+    .mini-chip .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 16px currentColor;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 430px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) 0.95fr;
+      gap: 24px;
+      align-items: stretch;
+      margin-bottom: 24px;
+    }
+
+    .hero-card,
+    .side-card,
+    .demo-card,
+    .timeline {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.038));
+      border-radius: var(--radius-xl);
+      box-shadow: 0 22px 70px var(--shadow), inset 0 1px 0 rgba(255,255,255,0.06);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero-card {
+      padding: clamp(24px, 4vw, 42px);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero-card::before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,123,114,0.10), transparent 28%),
+        radial-gradient(circle at 80% 76%, rgba(125,211,252,0.10), transparent 30%);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .hero-inner { position: relative; z-index: 1; }
+
+    .eyebrow-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow-row .chip:nth-child(1) { color: var(--attn); border-color: rgba(82,183,136,0.25); background: rgba(82,183,136,0.07); }
+    .eyebrow-row .chip:nth-child(2) { color: var(--quant-final); border-color: rgba(125,211,252,0.24); background: rgba(125,211,252,0.07); }
+    .eyebrow-row .chip:nth-child(3) { color: var(--query); border-color: rgba(199,125,255,0.24); background: rgba(199,125,255,0.07); }
+
+    h1 {
+      margin: 0;
+      max-width: 820px;
+      font-size: clamp(42px, 7vw, 78px);
+      line-height: 0.94;
+      letter-spacing: -0.065em;
+    }
+
+    .gradient-text {
+      background: linear-gradient(90deg, #ffffff, #d9b8ff 42%, #b9ecff 72%, #8ee2b2);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .lead {
+      max-width: 720px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(15px, 1.85vw, 18px);
+      line-height: 1.62;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 46px;
+      padding: 0 18px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.09);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 780;
+      font-size: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      background: rgba(255,255,255,0.13);
+      border-color: rgba(255,255,255,0.24);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, rgba(199,125,255,0.33), rgba(82,183,136,0.22));
+      border-color: rgba(255,255,255,0.22);
+    }
+
+    .button .arrow {
+      opacity: 0.72;
+      transform: translateY(-1px);
+    }
+
+    .side-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 430px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .visual-orbit {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.95;
+    }
+
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: radial-gradient(circle at 35% 28%, rgba(255,255,255,0.16), rgba(255,255,255,0.03) 36%, transparent 70%);
+      box-shadow: inset 0 0 32px rgba(255,255,255,0.035), 0 0 42px rgba(125,211,252,0.06);
+    }
+
+    .orb.one { width: 210px; height: 210px; left: 34px; top: 78px; }
+    .orb.two { width: 158px; height: 158px; right: 38px; top: 56px; }
+    .orb.three { width: 184px; height: 184px; right: 88px; bottom: 52px; }
+
+    .beam {
+      position: absolute;
+      height: 1px;
+      transform-origin: left center;
+      background: linear-gradient(90deg, transparent, currentColor, transparent);
+      opacity: 0.55;
+      filter: drop-shadow(0 0 8px currentColor);
+    }
+
+    .beam.b1 { color: var(--key); width: 250px; left: 170px; top: 142px; transform: rotate(-13deg); }
+    .beam.b2 { color: var(--value); width: 290px; left: 128px; top: 276px; transform: rotate(17deg); }
+    .beam.b3 { color: var(--query); width: 220px; right: 104px; top: 196px; transform: rotate(70deg); }
+    .beam.b4 { color: var(--attn); width: 190px; right: 156px; bottom: 144px; transform: rotate(-28deg); }
+
+    .node {
+      position: absolute;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 18px currentColor;
+    }
+    .node.n1 { color: var(--current); left: 92px; top: 154px; }
+    .node.n2 { color: var(--query); right: 168px; top: 120px; }
+    .node.n3 { color: var(--key); right: 102px; top: 238px; }
+    .node.n4 { color: var(--attn); left: 228px; bottom: 130px; }
+    .node.n5 { color: var(--quant-final); right: 156px; bottom: 122px; }
+
+    .visual-content {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 12px;
+    }
+
+    .side-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 850;
+      letter-spacing: 0.17em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.58);
+    }
+
+    .math-card {
+      margin-top: auto;
+      position: relative;
+      z-index: 1;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      background: rgba(0,0,0,0.27);
+      backdrop-filter: blur(10px);
+    }
+
+    .math-line {
+      font-family: "STIX Two Math", "Cambria Math", Georgia, serif;
+      font-size: clamp(22px, 3vw, 34px);
+      line-height: 1.24;
+      letter-spacing: 0.01em;
+      color: #fff;
+      text-shadow: 0 2px 20px rgba(125,211,252,0.22);
+    }
+
+    .math-note {
+      margin-top: 9px;
+      color: rgba(255,255,255,0.62);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin: 34px 0 16px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: clamp(24px, 3.5vw, 40px);
+      letter-spacing: -0.045em;
+      line-height: 1;
+    }
+
+    .section-heading p {
+      margin: 0;
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+      text-align: right;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .demo-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 410px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      transform: translateZ(0);
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .demo-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-strong);
+      background: linear-gradient(180deg, rgba(255,255,255,0.095), rgba(255,255,255,0.045));
+      box-shadow: 0 26px 80px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .demo-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent), transparent 78%), transparent 38%);
+      opacity: 0.98;
+      pointer-events: none;
+    }
+
+    .demo-card > * { position: relative; z-index: 1; }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .card-icon {
+      width: 58px;
+      height: 58px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 19px;
+      border: 1px solid color-mix(in srgb, var(--accent), transparent 58%);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent), transparent 84%), rgba(255,255,255,0.035));
+      box-shadow: 0 0 30px color-mix(in srgb, var(--accent), transparent 86%);
+    }
+
+    .card-icon svg {
+      width: 34px;
+      height: 34px;
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--accent), transparent 58%);
+      background: color-mix(in srgb, var(--accent), transparent 88%);
+      color: color-mix(in srgb, var(--accent), white 12%);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .demo-card h3 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.06;
+      letter-spacing: -0.035em;
+    }
+
+    .subtitle-card {
+      margin: 9px 0 0;
+      color: color-mix(in srgb, var(--accent), white 30%);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .description {
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.58;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .mini-chip {
+      min-height: 26px;
+      padding: 0 9px;
+      font-size: 10px;
+      letter-spacing: 0.09em;
+      color: rgba(255,255,255,0.70);
+      background: rgba(0,0,0,0.16);
+    }
+
+    .card-spacer { flex: 1 1 auto; min-height: 22px; }
+
+    .card-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 48px;
+      margin-top: 20px;
+      padding: 0 14px;
+      border-radius: 16px;
+      border: 1px solid color-mix(in srgb, var(--accent), transparent 56%);
+      background: color-mix(in srgb, var(--accent), transparent 86%);
+      color: #fff;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 820;
+      transition: transform 0.16s ease, background 0.16s ease;
+    }
+
+    .card-link:hover {
+      transform: translateY(-1px);
+      background: color-mix(in srgb, var(--accent), transparent 78%);
+    }
+
+    .card-link span:last-child { color: color-mix(in srgb, var(--accent), white 22%); font-size: 20px; }
+
+    .timeline {
+      margin-top: 16px;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 1.1fr 1.4fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .timeline h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.035em;
+    }
+
+    .timeline p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .flow-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .flow-item {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      background: rgba(0,0,0,0.16);
+    }
+
+    .flow-number {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: rgba(255,255,255,0.075);
+      color: var(--accent);
+      font-weight: 900;
+      font-size: 12px;
+      border: 1px solid color-mix(in srgb, var(--accent), transparent 62%);
+    }
+
+    .flow-copy strong {
+      display: block;
+      margin-bottom: 3px;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    .flow-copy span {
+      color: rgba(255,255,255,0.62);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin: 24px 0 0;
+      padding: 16px 4px 0;
+      color: rgba(255,255,255,0.44);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: rgba(255,255,255,0.82);
+      background: rgba(255,255,255,0.065);
+      border: 1px solid rgba(255,255,255,0.10);
+      padding: 2px 6px;
+      border-radius: 8px;
+    }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; }
+      .side-card { min-height: 340px; }
+      .grid { grid-template-columns: 1fr; }
+      .demo-card { min-height: auto; }
+      .timeline { grid-template-columns: 1fr; }
+      .section-heading { align-items: start; flex-direction: column; }
+      .section-heading p { text-align: left; }
+    }
+
+    @media (max-width: 640px) {
+      .page { width: min(100% - 24px, 1180px); padding-top: 18px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .hero-card, .side-card, .demo-card, .timeline { border-radius: 22px; }
+      .hero-card { padding: 22px; }
+      .hero-actions .button { width: 100%; }
+      .orb.one { left: -20px; }
+      .orb.two { right: -22px; }
+      .orb.three { right: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Transformer Visualization Lab home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-kicker">Static GitHub Pages</span>
+          <span class="brand-title">Transformer Visualization Lab</span>
+        </span>
+      </a>
+      <div class="top-actions" aria-label="Site status">
+        <span class="chip"><span class="dot"></span>Static HTML</span>
+        <span class="chip"><span class="dot"></span>Interactive 3D</span>
+        <span class="chip"><span class="dot"></span>Presenter Hotkeys</span>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-card">
+        <div class="hero-inner">
+          <div class="eyebrow-row">
+            <span class="chip"><span class="dot"></span>Attention</span>
+            <span class="chip"><span class="dot"></span>K/V Cache</span>
+            <span class="chip"><span class="dot"></span>Read / Activate / Write</span>
+          </div>
+          <h1 id="hero-title">Interactive <span class="gradient-text">transformer mechanics</span> in one launch page.</h1>
+          <p class="lead">
+            Explore three linked demos for inference flow, one-head attention, and MLP-style vector transformations. Each page is a self-contained HTML visualization, so this launcher can live directly in the root of a GitHub Pages repository.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#demos">Browse the demos <span class="arrow">↓</span></a>
+            <a class="button" href="transformer-prefill-decode-kv-cache(1).html">Start with inference <span class="arrow">↗</span></a>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side-card" aria-label="Vector-flow illustration">
+        <div class="visual-orbit" aria-hidden="true">
+          <div class="orb one"></div>
+          <div class="orb two"></div>
+          <div class="orb three"></div>
+          <div class="beam b1"></div>
+          <div class="beam b2"></div>
+          <div class="beam b3"></div>
+          <div class="beam b4"></div>
+          <div class="node n1"></div>
+          <div class="node n2"></div>
+          <div class="node n3"></div>
+          <div class="node n4"></div>
+          <div class="node n5"></div>
+        </div>
+        <div class="visual-content">
+          <p class="side-title">Shared visual language</p>
+          <div class="tag-row">
+            <span class="mini-chip">glass panels</span>
+            <span class="mini-chip">solid-angle vectors</span>
+            <span class="mini-chip">quant paths</span>
+            <span class="mini-chip">stage controls</span>
+          </div>
+        </div>
+        <div class="math-card">
+          <div class="math-line">x → Q/K/V → softmax → Σaᵢvᵢ → Wₒ</div>
+          <div class="math-note">A themed index that feels like the demos: dark canvas, glowing tensors, stage chips, rounded panels, and clean launch links.</div>
+        </div>
+      </aside>
+    </section>
+
+    <section id="demos" aria-labelledby="demos-title">
+      <div class="section-heading">
+        <h2 id="demos-title">Launch demos</h2>
+        <p>Open any visualization directly. Keep this <code>index.html</code> beside the three demo files so the relative links resolve correctly on GitHub Pages.</p>
+      </div>
+
+      <div class="grid">
+        <article class="demo-card" style="--accent: var(--quant-final)">
+          <div class="card-top">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48">
+                <path d="M8 12h14m4 0h14M8 24h32M8 36h14m4 0h14" />
+                <path d="M17 7v10M31 19v10M17 31v10" />
+                <circle cx="17" cy="12" r="3.2" />
+                <circle cx="31" cy="24" r="3.2" />
+                <circle cx="17" cy="36" r="3.2" />
+              </svg>
+            </div>
+            <span class="status-chip"><span class="dot"></span>Pipeline</span>
+          </div>
+          <h3>Transformer Inference</h3>
+          <p class="subtitle-card">Prefill · Decode · K/V Cache</p>
+          <p class="description">Walk through token embedding, residual stream updates, attention and MLP layers, LM-head logits, top-k selection, and the prefill-to-decode cache transition.</p>
+          <div class="tag-row">
+            <span class="mini-chip">prefill</span>
+            <span class="mini-chip">decode</span>
+            <span class="mini-chip">K/V slots</span>
+            <span class="mini-chip">LM head</span>
+          </div>
+          <div class="card-spacer"></div>
+          <a class="card-link" href="transformer-prefill-decode-kv-cache(1).html"><span>Open inference demo</span><span>↗</span></a>
+        </article>
+
+        <article class="demo-card" style="--accent: var(--query)">
+          <div class="card-top">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48">
+                <circle cx="11" cy="24" r="5" />
+                <circle cx="24" cy="12" r="5" />
+                <circle cx="24" cy="36" r="5" />
+                <circle cx="38" cy="24" r="5" />
+                <path d="M15.5 21.5 20 15.5M15.5 26.5 20 32.5M28.5 15.5 34 21M28.5 32.5 34 27" />
+                <path d="M24 17v14" />
+              </svg>
+            </div>
+            <span class="status-chip"><span class="dot"></span>Attention</span>
+          </div>
+          <h3>One-Head Attention</h3>
+          <p class="subtitle-card">Q/K/V · Activation · Wₒ · Quant Compare</p>
+          <p class="description">See the current token read through Wq, all tokens project through Wk/Wv, attention coefficients scale values, context writes through Wₒ, and the quantized path compares against the continuous output.</p>
+          <div class="tag-row">
+            <span class="mini-chip">Q/K/V</span>
+            <span class="mini-chip">softmax</span>
+            <span class="mini-chip">Wₒ output</span>
+            <span class="mini-chip">quantization</span>
+          </div>
+          <div class="card-spacer"></div>
+          <a class="card-link" href="attention-read-activate-write-quant-compare-v3-hotkeys(2).html"><span>Open attention demo</span><span>↗</span></a>
+        </article>
+
+        <article class="demo-card" style="--accent: var(--tensor)">
+          <div class="card-top">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48">
+                <circle cx="14" cy="14" r="5" />
+                <circle cx="14" cy="34" r="5" />
+                <circle cx="34" cy="14" r="5" />
+                <circle cx="34" cy="34" r="5" />
+                <path d="M18 14h12M18 34h12M14 19v10M34 19v10" />
+                <path d="M18 18 30 30M30 18 18 30" />
+              </svg>
+            </div>
+            <span class="status-chip"><span class="dot"></span>MLP Flow</span>
+          </div>
+          <h3>Read → Activate → Write</h3>
+          <p class="subtitle-card">Solid Angles · Target Drift · Transforms</p>
+          <p class="description">Explore a two-bank vector pipeline: read coefficients, activation curves, write scaling, summation, normalization, second-pass remaps, target motion, and transform-based comparisons.</p>
+          <div class="tag-row">
+            <span class="mini-chip">MLP</span>
+            <span class="mini-chip">GELU / SiLU</span>
+            <span class="mini-chip">solid angles</span>
+            <span class="mini-chip">targets</span>
+          </div>
+          <div class="card-spacer"></div>
+          <a class="card-link" href="mlp-with-hotkeys(3).html"><span>Open MLP demo</span><span>↗</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="timeline" aria-labelledby="order-title">
+      <div>
+        <h2 id="order-title">Suggested walkthrough order</h2>
+        <p>Start broad with the full inference pipeline, zoom into attention, then isolate the read/activate/write mechanism used by MLP-style transformations.</p>
+      </div>
+      <div class="flow-list">
+        <div class="flow-item" style="--accent: var(--quant-final)">
+          <div class="flow-number">1</div>
+          <div class="flow-copy"><strong>Inference loop</strong><span>Prefill the prompt, build the cache, decode one token, and return the sampled token to the start.</span></div>
+        </div>
+        <div class="flow-item" style="--accent: var(--query)">
+          <div class="flow-number">2</div>
+          <div class="flow-copy"><strong>Attention internals</strong><span>Trace Q/K/V projections, scores, activation, weighted value writing, Wₒ, and quantized comparison.</span></div>
+        </div>
+        <div class="flow-item" style="--accent: var(--tensor)">
+          <div class="flow-number">3</div>
+          <div class="flow-copy"><strong>Vector bank mechanics</strong><span>Inspect how read coefficients become activated write contributions and how remaps change final directions.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>Drop this folder into a GitHub Pages repo root and enable Pages from the <code>main</code> branch.</span>
+      <span>All links are relative, so no build step is required.</span>
+    </footer>
+  </main>
+</body>
+</html>
